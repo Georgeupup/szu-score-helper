@@ -1,4 +1,4 @@
-🎓 SZU Graduate Score Helper (深大研究生查分小助手)
+# 🎓 SZU Graduate Score Helper (深大研究生查分小助手)
 
 <p align="center">
 <img src="https://img.shields.io/badge/Python-3.8%252B-blue" alt="Python Version">
