@@ -13,12 +13,41 @@
 
 ## 环境要求
 
+使用 Release 中的 exe：
+
 - Windows
-- Python 3.8+
 - Microsoft Edge 或 Google Chrome
 - 可访问 `ehall.szu.edu.cn` 的网络环境
 
-## 安装依赖
+源码运行额外需要：
+
+- Python 3.8+
+- `requests`
+- `playwright`
+
+## 使用方法
+
+### 方式一：下载 exe 直接运行（推荐）
+
+最简单的方式是到 GitHub Release 页面下载打包好的 exe 文件：
+
+```text
+深大查分助手.exe
+```
+
+下载后双击运行即可，不需要安装 Python，也不需要手动配置 Cookie。
+
+使用步骤：
+
+1. 双击打开 `深大查分助手.exe`。
+2. 点击“打开浏览器并查询成绩”。
+3. 在弹出的 Edge/Chrome 中手动完成统一身份认证登录。
+4. 登录进入成绩页面后，程序会自动读取 Cookie 并查询成绩。
+5. 查询结果会显示在表格中，并弹出统计汇总。
+
+### 方式二：源码运行（开发者）
+
+安装依赖：
 
 ```bash
 pip install requests playwright
@@ -30,18 +59,11 @@ pip install requests playwright
 conda install -n cl -c conda-forge greenlet playwright
 ```
 
-## GUI 使用方法
+运行 GUI：
 
 ```bash
 python GUI.py
 ```
-
-使用步骤：
-
-1. 点击“打开浏览器并查询成绩”。
-2. 在弹出的 Edge/Chrome 中手动完成统一身份认证登录。
-3. 登录进入成绩页面后，程序会自动读取 Cookie 并查询成绩。
-4. 查询结果会显示在表格中，并弹出统计汇总。
 
 ## 命令行使用方法
 
