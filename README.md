@@ -1,0 +1,106 @@
+# SZU Graduate Score Helper
+
+深圳大学研究生成绩查询小助手。当前版本通过浏览器手动登录获取本机 Cookie，然后调用成绩页面使用的接口读取成绩列表，并在 GUI 中展示课程、分数、学分、绩点和学期信息。
+
+## 功能
+
+- 图形界面：基于 `tkinter`，点击按钮后自动打开浏览器。
+- 手动登录：账号密码只在学校统一认证页面中输入，程序不保存、不自动填写账号密码。
+- 自动获取 Cookie：登录完成后通过 Playwright 读取本机浏览器 Cookie。
+- 成绩读取：调用成绩页面接口 `queryZhcjxx.do`，读取返回数据中的 `zhcjInfo`。
+- 统计汇总：自动计算总学分、平均百分制分数和平均绩点。
+- 命令行模式：`get_score.py` 支持手动粘贴 Cookie 后查询。
+
+## 环境要求
+
+- Windows
+- Python 3.8+
+- Microsoft Edge 或 Google Chrome
+- 可访问 `ehall.szu.edu.cn` 的网络环境
+
+## 安装依赖
+
+```bash
+pip install requests playwright
+```
+
+如果你在 Anaconda 环境中安装 `playwright` 遇到 `greenlet` 编译失败，优先使用已有可用环境运行，或使用 conda-forge：
+
+```bash
+conda install -n cl -c conda-forge greenlet playwright
+```
+
+## GUI 使用方法
+
+```bash
+python GUI.py
+```
+
+使用步骤：
+
+1. 点击“打开浏览器并查询成绩”。
+2. 在弹出的 Edge/Chrome 中手动完成统一身份认证登录。
+3. 登录进入成绩页面后，程序会自动读取 Cookie 并查询成绩。
+4. 查询结果会显示在表格中，并弹出统计汇总。
+
+## 命令行使用方法
+
+如果只想运行脚本查询，可以使用 `get_score.py`。
+
+打开浏览器 F12，在成绩接口请求中复制完整 `Cookie`，然后填入 [get_score.py](./get_score.py) 顶部：
+
+```python
+COOKIE = "EMAP_LANG=zh; THEME=cherry; _WEU=...; JSESSIONID=...; route=..."
+```
+
+运行：
+
+```bash
+python get_score.py
+```
+
+如果不想写进文件，也可以运行后按提示粘贴 Cookie。
+
+## 当前接口
+
+当前版本使用成绩页面中的接口：
+
+```text
+https://ehall.szu.edu.cn/gsapp/sys/szdxwdcjapp/wdcj/queryZhcjxx.do
+```
+
+主要读取字段：
+
+- `KCMC`：课程名称
+- `CJ` / `DYBFZCJ`：成绩
+- `XF`：学分
+- `JDZ`：绩点
+- `XNXQDM_DISPLAY`：学期
+- `CJFZDM_DISPLAY`：成绩分制
+
+## 注意事项
+
+- 本工具只在本机运行，不会上传账号、密码或 Cookie。
+- GUI 登录时请只在学校统一认证页面输入账号密码。
+- Cookie 有时效性，失效后需要重新登录获取。
+- 学校接口或页面结构调整后，程序可能需要同步更新。
+- 请勿高频请求学校系统。
+
+## 打包 exe
+
+可选使用 PyInstaller：
+
+```bash
+pip install pyinstaller
+pyinstaller --onefile --windowed --name="深大查分助手" GUI.py
+```
+
+## 致谢
+
+- GUI：`tkinter`
+- 浏览器登录与 Cookie 获取：`Playwright`
+- HTTP 请求：`requests`
+
+## License
+
+MIT License

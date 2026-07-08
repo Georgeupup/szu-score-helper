@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+
+.playwright_score_profile/
+.playwright_profile/
+
+build/
+dist/
+*.spec
+
+cookie.txt
+*.log
+.env
+.vscode/
