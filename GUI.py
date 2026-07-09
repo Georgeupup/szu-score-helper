@@ -21,6 +21,11 @@ BROWSER_COOKIE_PATH = "/gsapp/sys/szdxwdcjapp/modules/wdcj/xscjcx.do"
 AUTH_COOKIE_NAMES = ("MOD_AUTH_CAS", "JSESSIONID")
 PLAYWRIGHT_PROFILE_DIR = Path(__file__).with_name(".playwright_score_profile")
 COOKIE_WAIT_SECONDS = 180
+GOTO_FIRST_PAGE_QUERY = json.dumps(
+    [{"name": "_gotoFirstPage", "value": True, "linkOpt": "AND", "builder": "equal"}],
+    ensure_ascii=False,
+)
+GRADE_POINT_THRESHOLDS = [4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0]
 
 
 def build_cookie_header(cookies):
@@ -95,7 +100,7 @@ def load_cookie_from_playwright(log_callback=None):
                     last_url = current_url
 
                 cookie_text = build_cookie_header(context.cookies(SCORE_URL))
-                if cookie_text and "JSESSIONID" in cookie_text:
+                if cookie_text and all(name in cookie_text for name in AUTH_COOKIE_NAMES):
                     log(f"Cookie 获取完成，长度: {len(cookie_text)}")
                     return browser_name, cookie_text, current_url
 
@@ -152,7 +157,7 @@ class ScoreLogic:
         requests_to_try = [
             (
                 SCORE_URL,
-                {"pageSize": 200, "pageNumber": 1, "querySetting": "[]"},
+                {"pageSize": 200, "pageNumber": 1, "querySetting": GOTO_FIRST_PAGE_QUERY},
                 "xscjcx",
             ),
             (FALLBACK_SCORE_URL, None, "queryZhcjxx"),
@@ -164,6 +169,23 @@ class ScoreLogic:
                 return rows
 
         return []
+
+    def query_filtered_scores(self, field, value, builder="moreEqual"):
+        request_headers = self.headers.copy()
+        request_headers["Referer"] = self.referer
+        query_setting = json.dumps(
+            [
+                {
+                    "name": field,
+                    "value": value,
+                    "linkOpt": "AND",
+                    "builder": builder,
+                }
+            ],
+            ensure_ascii=False,
+        )
+        data = {"pageSize": 200, "pageNumber": 1, "querySetting": query_setting}
+        return self._query_score_url(SCORE_URL, request_headers, data, f"{field}>={value}")
 
     def _query_score_url(self, url, request_headers, data, label):
         try:
@@ -203,9 +225,10 @@ class ScoreLogic:
 
     @staticmethod
     def _extract_rows(res_json):
-        rows = res_json.get("zhcjInfo")
-        if isinstance(rows, list):
-            return rows
+        for key in ("zhcjInfo", "hcjInfo"):
+            rows = res_json.get(key)
+            if isinstance(rows, list):
+                return rows
 
         datas = res_json.get("datas")
         if isinstance(datas, dict):
@@ -227,8 +250,53 @@ class ScoreLogic:
             return default
 
     @staticmethod
-    def is_percent_course(course):
-        return course.get("CJFZDM") == "1" or course.get("CJFZDM_DISPLAY") == "百分制"
+    def course_key(course):
+        return (
+            course.get("WID")
+            or "|".join(
+                str(course.get(key, ""))
+                for key in ("XNXQDM", "KCDM", "KCMC", "BJDM", "KSXZDM")
+            )
+        )
+
+    def infer_grade_points(self, courses):
+        inferred = {}
+        pending = {}
+
+        for course in courses:
+            key = self.course_key(course)
+            direct_grade = course.get("JDZ")
+            if direct_grade not in (None, ""):
+                inferred[key] = self.to_float(direct_grade)
+            else:
+                pending[key] = course
+
+        if not pending:
+            self.log("接口已直接返回绩点字段 JDZ，无需反推。")
+            return inferred
+
+        self.log(
+            f"有 {len(pending)} 门课未直接返回绩点，开始按 JDZ 条件筛选反推绩点档位。"
+        )
+
+        for threshold in GRADE_POINT_THRESHOLDS:
+            rows = self.query_filtered_scores("JDZ", threshold)
+            keys = {self.course_key(row) for row in rows}
+            matched = 0
+            for key in list(pending.keys()):
+                if key in keys:
+                    inferred[key] = threshold
+                    pending.pop(key)
+                    matched += 1
+            self.log(f"JDZ >= {threshold:g}: 命中 {matched} 门待推断课程。")
+
+        for key in pending:
+            inferred[key] = 0.0
+
+        if pending:
+            self.log(f"{len(pending)} 门课未出现在 JDZ >= 1.0 结果中，按 0 或未通过处理。")
+
+        return inferred
 
 
 class BrowserLogin:
@@ -247,14 +315,14 @@ class BrowserLogin:
 class GradeApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("深大研究生查分小助手 v1.1")
+        self.root.title("深大研究生成绩小助手 v1.2")
         self.root.geometry("920x680")
         self.setup_ui()
 
     def setup_ui(self):
         tk.Label(
             self.root,
-            text="提示：点击按钮后会弹出 Chrome，请在浏览器中自行登录，程序只读取本机浏览器 Cookie。",
+            text="提示：点击按钮后会弹出浏览器，请在浏览器中自行登录，程序只读取本机浏览器 Cookie。",
             fg="#D32F2F",
             bg="#FFEBEE",
             font=("微软雅黑", 10),
@@ -266,7 +334,7 @@ class GradeApp:
 
         self.btn_start = tk.Button(
             frame_login,
-            text="打开浏览器并查询成绩",
+            text="打开浏览器并查询绩点",
             command=self.start_thread,
             bg="#4CAF50",
             fg="white",
@@ -284,12 +352,12 @@ class GradeApp:
         frame_table = tk.LabelFrame(self.root, text="成绩列表", padx=10, pady=10)
         frame_table.pack(fill="both", expand=True, padx=10, pady=5)
 
-        columns = ("课程名称", "百分制成绩", "学分", "绩点", "学期", "状态")
+        columns = ("课程名称", "成绩", "学分", "绩点", "学期", "状态")
         self.tree = ttk.Treeview(frame_table, columns=columns, show="headings")
 
         widths = {
             "课程名称": 260,
-            "百分制成绩": 90,
+            "成绩": 90,
             "学分": 70,
             "绩点": 70,
             "学期": 180,
@@ -358,63 +426,77 @@ class GradeApp:
 
             self.log("正在读取成绩接口...")
             all_courses = score_bot.query_all_scores()
-            percent_courses = [c for c in all_courses if score_bot.is_percent_course(c)]
 
-            if not percent_courses:
-                self.log("未查询到百分制课程数据，请确认网页登录后能看到成绩。")
+            if not all_courses:
+                self.log("未查询到课程数据，请确认网页登录后能看到成绩列表。")
                 return
 
-            self.log(f"共读取 {len(all_courses)} 条成绩，其中百分制课程 {len(percent_courses)} 门。")
+            self.log(f"共读取 {len(all_courses)} 条课程记录，开始推断绩点。")
+            grade_points = score_bot.infer_grade_points(all_courses)
 
             total_credit = 0.0
             total_grade_point = 0.0
             total_score_val = 0.0
 
-            for course in percent_courses:
+            for course in all_courses:
                 name = course.get("KCMC", "")
-                score = score_bot.to_float(course.get("DYBFZCJ", course.get("CJ")))
-                credit = score_bot.to_float(course.get("XF"))
-                grade_point = score_bot.to_float(course.get("JDZ"))
+                raw_score = course.get("DYBFZCJ", course.get("CJ"))
+                raw_credit = course.get("XF")
+                score = score_bot.to_float(raw_score)
+                credit = score_bot.to_float(raw_credit)
+                grade_point = grade_points.get(score_bot.course_key(course), 0.0)
                 term = course.get("XNXQDM_DISPLAY", "")
                 status = course.get("BY1", "")
+                score_display = f"{score:g}" if raw_score not in (None, "") else "-"
+                credit_display = f"{credit:g}" if raw_credit not in (None, "") else "-"
 
                 self.root.after(
                     0,
-                    lambda n=name, s=score, c=credit, g=grade_point, t=term, st=status: self.tree.insert(
+                    lambda n=name, s=score_display, c=credit_display, g=grade_point, t=term, st=status: self.tree.insert(
                         "",
                         "end",
-                        values=(n, f"{s:g}", f"{c:g}", f"{g:g}", t, st),
+                        values=(n, s, c, f"{g:g}", t, st),
                     ),
                 )
 
-                total_credit += credit
-                total_grade_point += credit * grade_point
-                total_score_val += credit * score
+                if raw_credit not in (None, ""):
+                    total_credit += credit
+                    total_grade_point += credit * grade_point
+                    if raw_score not in (None, ""):
+                        total_score_val += credit * score
 
             if total_credit > 0:
                 avg_gpa = round(total_grade_point / total_credit, 4)
-                avg_score = round(total_score_val / total_credit, 4)
-                summary = f"总学分: {total_credit:g} | 平均百分制: {avg_score} | 平均绩点(GPA): {avg_gpa}"
-                self.log(summary)
-                self.root.after(0, lambda: messagebox.showinfo("查询成功", summary))
+                msg = f"查询完成。\n总学分: {total_credit:g}\n平均绩点: {avg_gpa}"
+                if total_score_val > 0:
+                    avg_score = round(total_score_val / total_credit, 4)
+                    msg += f"\n平均百分制分数: {avg_score}"
+                self.log(msg.replace("\n", " | "))
+                self.root.after(0, lambda m=msg: messagebox.showinfo("查询完成", m))
+            else:
+                self.log("查询完成，但接口没有返回可用于加权统计的学分。")
+                self.root.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "查询完成",
+                        "已显示课程绩点，但接口没有返回可用于加权统计的学分。",
+                    ),
+                )
         except Exception as exc:
             self.log(f"发生未知错误: {exc}")
-            import traceback
-
-            traceback.print_exc()
+            self.root.after(0, lambda e=str(exc): messagebox.showerror("错误", e))
         finally:
-            self.reset_btn()
-
-    def reset_btn(self):
-        self.root.after(
-            0,
-            lambda: self.btn_start.config(
-                state="normal", text="打开浏览器并查询成绩"
-            ),
-        )
+            self.root.after(
+                0,
+                lambda: self.btn_start.config(state="normal", text="打开浏览器并查询绩点"),
+            )
 
 
-if __name__ == "__main__":
+def main():
     root = tk.Tk()
     app = GradeApp(root)
     root.mainloop()
+
+
+if __name__ == "__main__":
+    main()

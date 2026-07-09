@@ -1,6 +1,6 @@
 # SZU Graduate Score Helper
 
-深圳大学研究生成绩查询小助手。当前版本通过浏览器手动登录获取本机 Cookie，然后调用成绩页面使用的接口读取成绩列表，并在 GUI 中展示课程、分数、学分、绩点和学期信息。
+深圳大学研究生成绩/绩点查询小助手。当前版本通过浏览器手动登录获取本机 Cookie，然后调用成绩页面使用的接口读取课程列表；如果接口不直接返回 `JDZ` 绩点字段，会通过 `JDZ >= 4/3.5/3/...` 的条件筛选结果反推每门课的绩点档位。
 
 ## 功能
 
@@ -8,7 +8,8 @@
 - 手动登录：账号密码只在学校统一认证页面中输入，程序不保存、不自动填写账号密码。
 - 自动获取 Cookie：登录完成后通过 Playwright 读取本机浏览器 Cookie。
 - 成绩读取：调用成绩页面接口 `xscjcx.do`，读取返回数据中的 `datas.xscjcx.rows`。
-- 统计汇总：自动计算总学分、平均百分制分数和平均绩点。
+- 绩点推断：如果返回数据隐藏 `JDZ`，会按 `JDZ >= 4/3.5/3/...` 的筛选结果推断每门课绩点。
+- 统计汇总：在接口返回学分时自动计算总学分和平均绩点；若接口返回百分制成绩，也会计算平均百分制分数。
 - 命令行模式：`get_score.py` 支持手动粘贴 Cookie 后查询。
 
 ## 环境要求
@@ -40,9 +41,9 @@
 使用步骤：
 
 1. 双击打开 `深大查分助手.exe`。
-2. 点击“打开浏览器并查询成绩”。
+2. 点击“打开浏览器并查询绩点”。
 3. 在弹出的 Edge/Chrome 中手动完成统一身份认证登录。
-4. 登录进入成绩页面后，程序会自动读取 Cookie 并查询成绩。
+4. 登录进入成绩页面后，程序会自动读取 Cookie、查询课程列表并推断绩点。
 5. 查询结果会显示在表格中，并弹出统计汇总。
 
 ### 方式二：源码运行（开发者）
@@ -53,7 +54,7 @@
 pip install requests playwright
 ```
 
-如果你在 Anaconda 环境中安装 `playwright` 遇到 `greenlet` 编译失败，优先使用已有可用环境运行，或使用 conda-forge：
+如果你在 Anaconda 环境中安装 `playwright` 遇到 `greenlet` 编译失败，优先使用 conda-forge：
 
 ```bash
 conda install -n cl -c conda-forge greenlet playwright
@@ -91,7 +92,7 @@ python get_score.py
 https://ehall.szu.edu.cn/gsapp/sys/szdxwdcjapp/modules/wdcj/xscjcx.do
 ```
 
-程序会解析返回数据中的 `datas.xscjcx.rows`。同时保留旧接口 `wdcj/queryZhcjxx.do` 作为兼容回退。
+程序会解析返回数据中的 `datas.xscjcx.rows`，同时保留旧接口 `wdcj/queryZhcjxx.do` 作为兼容回退。
 
 主要读取字段：
 
@@ -101,6 +102,20 @@ https://ehall.szu.edu.cn/gsapp/sys/szdxwdcjapp/modules/wdcj/xscjcx.do
 - `JDZ`：绩点
 - `XNXQDM_DISPLAY`：学期
 - `CJFZDM_DISPLAY`：成绩分制
+
+如果 `JDZ` 被隐藏但仍允许作为筛选字段，程序会批量请求：
+
+```text
+JDZ >= 4
+JDZ >= 3.5
+JDZ >= 3
+JDZ >= 2.5
+JDZ >= 2
+JDZ >= 1.5
+JDZ >= 1
+```
+
+然后根据每门课首次命中的最高档位反推出对应绩点。
 
 ## 注意事项
 
