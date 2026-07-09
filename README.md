@@ -7,7 +7,7 @@
 - 图形界面：基于 `tkinter`，点击按钮后自动打开浏览器。
 - 手动登录：账号密码只在学校统一认证页面中输入，程序不保存、不自动填写账号密码。
 - 自动获取 Cookie：登录完成后通过 Playwright 读取本机浏览器 Cookie。
-- 成绩读取：调用成绩页面接口 `queryZhcjxx.do`，读取返回数据中的 `zhcjInfo`。
+- 成绩读取：调用成绩页面接口 `xscjcx.do`，读取返回数据中的 `datas.xscjcx.rows`。
 - 统计汇总：自动计算总学分、平均百分制分数和平均绩点。
 - 命令行模式：`get_score.py` 支持手动粘贴 Cookie 后查询。
 
@@ -88,8 +88,10 @@ python get_score.py
 当前版本使用成绩页面中的接口：
 
 ```text
-https://ehall.szu.edu.cn/gsapp/sys/szdxwdcjapp/wdcj/queryZhcjxx.do
+https://ehall.szu.edu.cn/gsapp/sys/szdxwdcjapp/modules/wdcj/xscjcx.do
 ```
+
+程序会解析返回数据中的 `datas.xscjcx.rows`。同时保留旧接口 `wdcj/queryZhcjxx.do` 作为兼容回退。
 
 主要读取字段：
 

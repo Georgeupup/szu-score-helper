@@ -14,9 +14,10 @@ import requests
 os.environ["NO_PROXY"] = "ehall.szu.edu.cn"
 
 LOGIN_URL = "https://ehall.szu.edu.cn/gsapp/sys/szdxwdcjapp/*default/index.do"
-SCORE_URL = "https://ehall.szu.edu.cn/gsapp/sys/szdxwdcjapp/wdcj/queryZhcjxx.do"
+SCORE_URL = "https://ehall.szu.edu.cn/gsapp/sys/szdxwdcjapp/modules/wdcj/xscjcx.do"
+FALLBACK_SCORE_URL = "https://ehall.szu.edu.cn/gsapp/sys/szdxwdcjapp/wdcj/queryZhcjxx.do"
 BROWSER_COOKIE_DOMAIN = "ehall.szu.edu.cn"
-BROWSER_COOKIE_PATH = "/gsapp/sys/szdxwdcjapp/wdcj/queryZhcjxx.do"
+BROWSER_COOKIE_PATH = "/gsapp/sys/szdxwdcjapp/modules/wdcj/xscjcx.do"
 AUTH_COOKIE_NAMES = ("MOD_AUTH_CAS", "JSESSIONID")
 PLAYWRIGHT_PROFILE_DIR = Path(__file__).with_name(".playwright_score_profile")
 COOKIE_WAIT_SECONDS = 180
@@ -148,21 +149,39 @@ class ScoreLogic:
         request_headers = self.headers.copy()
         request_headers["Referer"] = self.referer
 
+        requests_to_try = [
+            (
+                SCORE_URL,
+                {"pageSize": 200, "pageNumber": 1, "querySetting": "[]"},
+                "xscjcx",
+            ),
+            (FALLBACK_SCORE_URL, None, "queryZhcjxx"),
+        ]
+
+        for url, data, label in requests_to_try:
+            rows = self._query_score_url(url, request_headers, data, label)
+            if rows:
+                return rows
+
+        return []
+
+    def _query_score_url(self, url, request_headers, data, label):
         try:
             ret = requests.post(
-                SCORE_URL,
+                url,
                 cookies=self.cookies,
                 headers=request_headers,
+                data=data,
                 timeout=15,
                 allow_redirects=False,
             )
             if 300 <= ret.status_code < 400:
                 location = ret.headers.get("Location", "")
-                self.log(f"成绩接口发生跳转: HTTP {ret.status_code}, Location={location}")
+                self.log(f"{label} 接口发生跳转: HTTP {ret.status_code}, Location={location}")
                 return []
             ret.raise_for_status()
         except requests.RequestException as exc:
-            self.log(f"请求成绩接口失败: {exc}")
+            self.log(f"请求 {label} 接口失败: {exc}")
             return []
 
         try:
@@ -170,16 +189,33 @@ class ScoreLogic:
         except JSONDecodeError:
             content_type = ret.headers.get("Content-Type", "")
             preview = ret.text[:300].replace("\n", "\\n").replace("\r", "\\r")
-            self.log(f"成绩接口没有返回 JSON: Content-Type={content_type}, 响应={preview}")
+            self.log(f"{label} 接口没有返回 JSON: Content-Type={content_type}, 响应={preview}")
             return []
 
+        rows = self._extract_rows(res_json)
+        if isinstance(rows, list):
+            self.log(f"已通过 {label} 接口读取 {len(rows)} 条成绩。")
+            return rows
+
+        preview = json.dumps(res_json, ensure_ascii=False)[:300]
+        self.log(f"{label} 返回 JSON 中没有找到成绩列表: {preview}")
+        return []
+
+    @staticmethod
+    def _extract_rows(res_json):
         rows = res_json.get("zhcjInfo")
-        if not isinstance(rows, list):
-            preview = json.dumps(res_json, ensure_ascii=False)[:300]
-            self.log(f"返回 JSON 中没有 zhcjInfo 列表: {preview}")
-            return []
+        if isinstance(rows, list):
+            return rows
 
-        return rows
+        datas = res_json.get("datas")
+        if isinstance(datas, dict):
+            xscjcx = datas.get("xscjcx")
+            if isinstance(xscjcx, dict):
+                rows = xscjcx.get("rows")
+                if isinstance(rows, list):
+                    return rows
+
+        return None
 
     @staticmethod
     def to_float(value, default=0.0):

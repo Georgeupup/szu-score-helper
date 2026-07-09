@@ -7,7 +7,8 @@ import requests
 
 os.environ["NO_PROXY"] = "ehall.szu.edu.cn"
 
-SCORE_URL = "https://ehall.szu.edu.cn/gsapp/sys/szdxwdcjapp/wdcj/queryZhcjxx.do"
+SCORE_URL = "https://ehall.szu.edu.cn/gsapp/sys/szdxwdcjapp/modules/wdcj/xscjcx.do"
+FALLBACK_SCORE_URL = "https://ehall.szu.edu.cn/gsapp/sys/szdxwdcjapp/wdcj/queryZhcjxx.do"
 DEFAULT_REFERER = "https://ehall.szu.edu.cn/gsapp/sys/szdxwdcjapp/*default/index.do"
 
 # 把 F12 请求头里的 cookie 整行粘到这里，保留两边引号。
@@ -85,11 +86,34 @@ def query_all_scores():
         "SZU_REFERER", DEFAULT_REFERER
     )
 
+    errors = []
+    requests_to_try = [
+        (
+            SCORE_URL,
+            {"pageSize": 200, "pageNumber": 1, "querySetting": "[]"},
+            "xscjcx",
+        ),
+        (FALLBACK_SCORE_URL, None, "queryZhcjxx"),
+    ]
+
+    for url, data, label in requests_to_try:
+        try:
+            rows = query_score_url(url, request_headers, data)
+            print(f"已通过 {label} 接口读取 {len(rows)} 条成绩")
+            return rows
+        except ScoreQueryError as exc:
+            errors.append(f"{label}: {exc}")
+
+    raise ScoreQueryError("\n".join(errors))
+
+
+def query_score_url(url, request_headers, data):
     try:
         ret = requests.post(
-            SCORE_URL,
+            url,
             cookies=cookies,
             headers=request_headers,
+            data=data,
             timeout=15,
             allow_redirects=False,
         )
@@ -119,16 +143,32 @@ def query_all_scores():
             f"响应预览: {preview}"
         ) from exc
 
-    rows = res_json.get("zhcjInfo")
-    if not isinstance(rows, list):
+    rows = extract_rows(res_json)
+    if rows is None:
         preview = json.dumps(res_json, ensure_ascii=False)[:800]
         raise ScoreQueryError(
-            "成绩接口返回了 JSON，但没有找到 zhcjInfo 列表。\n"
+            "成绩接口返回了 JSON，但没有找到成绩列表。\n"
             f"返回字段: {list(res_json.keys())}\n"
             f"响应预览: {preview}"
         )
 
     return rows
+
+
+def extract_rows(res_json):
+    rows = res_json.get("zhcjInfo")
+    if isinstance(rows, list):
+        return rows
+
+    datas = res_json.get("datas")
+    if isinstance(datas, dict):
+        xscjcx = datas.get("xscjcx")
+        if isinstance(xscjcx, dict):
+            rows = xscjcx.get("rows")
+            if isinstance(rows, list):
+                return rows
+
+    return None
 
 
 def main():
